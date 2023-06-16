@@ -76,7 +76,8 @@ def summarize_imp_feat(featimp_list_list, topn=30):
         for v in range(num_view):
             df_tmp = copy.deepcopy(featimp_list_list[r][v])
             df_tmp['omics'] = np.ones(df_tmp.shape[0], dtype=int)*v
-            df_featimp = df_featimp.append(df_tmp.copy(deep=True), ignore_index=True) 
+            df_featimp = pd.concat([df_featimp, df_tmp], ignore_index=True)
+            # df_featimp = df_featimp.append(df_tmp.copy(deep=True), ignore_index=True) 
     df_featimp_top = df_featimp.groupby(['feat_name', 'omics'])['imp'].sum()
     df_featimp_top = df_featimp_top.reset_index()
     df_featimp_top = df_featimp_top.sort_values(by='imp',ascending=False)
