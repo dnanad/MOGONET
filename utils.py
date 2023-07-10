@@ -3,6 +3,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
+
 cuda = True if torch.cuda.is_available() else False  # use GPU if available
 
 
@@ -255,7 +259,7 @@ def save_model_dict(folder, model_dict):
 def load_model_dict(folder, model_dict):
     for module in model_dict:
         if os.path.exists(os.path.join(folder, module + ".pth")):
-            #            print("Module {:} loaded!".format(module))
+            print("Module {:} loaded!".format(module))
             model_dict[module].load_state_dict(
                 torch.load(
                     os.path.join(folder, module + ".pth"),
@@ -267,3 +271,185 @@ def load_model_dict(folder, model_dict):
         if cuda:
             model_dict[module].cuda()
     return model_dict
+
+
+# data preprocessing
+
+
+def import_process_datafile(
+    raw_data_file_path, columns_to_drop, index_column, labels_dict
+):
+    df = pd.read_csv(raw_data_file_path, sep=",")
+    df = df.drop(columns=columns_to_drop)  # drop gene_num column
+    df.set_index(index_column, inplace=False)  # set gene_name as index
+    df_T = df.T
+    df_T.columns = df_T.iloc[0:1].values[0]  # set the first row as column names
+    df_T = df_T.iloc[1:, :]  # drop the first row
+
+    # added new column, using a dictionary labels_dict
+    df_T["disease"] = df_T.index.map(labels_dict)
+
+    return df_T
+
+
+def get_label_dict(labels_path):
+    df_labels = pd.read_csv(labels_path)
+    df_sample_names_labels = df_labels[["sample_name", "disease"]]
+    df_sample_names_labels.set_index("sample_name", inplace=True)
+    label_dict = df_sample_names_labels.disease.to_dict()
+
+    return label_dict
+
+
+def save_feat_name(i, df, data_folder_path):
+    # save the feature names as `i_featname.csv`
+    df_feat = pd.DataFrame(
+        df.columns.drop(
+            ["disease"],
+        )
+    )
+    file_name = str(i) + "_featname.csv"
+    file_path = os.path.join(data_folder_path, file_name)
+    df_feat.to_csv(file_path, header=None, index=None)
+
+    return
+
+
+def train_test_save(i, df, test_size, data_folder_path):
+    train, test = train_test_split(df, test_size=test_size)
+
+    label_train_path = os.path.join(data_folder_path, "labels_tr.csv")
+    label_train = train["disease"]
+    label_train.to_csv(label_train_path, header=None, index=None)
+    print(
+        "Labels for training set saved as `labels_tr.csv` in the folder:",
+        data_folder_path,
+    )
+    train_file_name = str(i) + "_tr.csv"
+    train_path = os.path.join(data_folder_path, train_file_name)
+    train = train.drop(columns=["disease"])
+    train.to_csv(train_path, header=None, index=None)
+    print("Training set saved as `", train_file_name, "in the folder:", train_path)
+
+    label_test_path = os.path.join(data_folder_path, "labels_te.csv")
+    label_test = test["disease"]
+    label_test.to_csv(label_test_path, header=None, index=None)
+    print("Label for test set saved as `labels_te.csv` in the folder:", label_test_path)
+
+    test_file_name = str(i) + "_te.csv"
+    test_path = os.path.join(data_folder_path, test_file_name)
+    test = test.drop(columns=["disease"])
+    test.to_csv(test_path, header=None, index=None)
+    print("Test set saved as`", test_file_name, "in the folder:", test_path)
+
+    return
+
+
+def dataset_summary(folder_name):
+    print("Dataset:", folder_name)
+    df_train = pd.read_csv("./" + folder_name + "/1_tr.csv", header=None)
+    df_test = pd.read_csv("./" + folder_name + "/1_te.csv", header=None)
+    print(
+        "Number of features:",
+        pd.read_csv("./" + folder_name + "/1_featname.csv", header=None).shape[0],
+    )
+    print("Total Number of samples:", df_train.shape[0] + df_test.shape[0])
+    print(
+        "Number of labels:",
+        len(
+            pd.read_csv("./" + folder_name + "/labels_te.csv", header=None)[0].unique()
+        ),
+    )
+    print("-------------------------------------------------------------------")
+    print(
+        "Training set dimension:",
+        df_train.shape,
+    )
+    print(
+        "Number of samples for TRAINING:",
+        df_train.shape[0],
+    )
+    print(
+        "Number of labels for TRAINING:",
+        pd.read_csv("./" + folder_name + "/labels_tr.csv", header=None).shape[0],
+    )
+    print("-------------------------------------------------------------------")
+    print(
+        "Test set dimension:",
+        df_test.shape,
+    )
+    print(
+        "Number of samples for TESTING:",
+        df_test.shape[0],
+    )
+    print(
+        "Number of labels for TESTING:",
+        pd.read_csv("./" + folder_name + "/labels_te.csv", header=None).shape[0],
+    )
+
+
+def find_numFolders_maxNumFolders(input):
+    intlistfolders = []
+    list_subfolders_with_paths = [f.name for f in os.scandir(input) if f.is_dir()]
+    for x in list_subfolders_with_paths:
+        try:
+            intval = int(x)
+            # print(intval)
+            intlistfolders.append(intval)
+        except:
+            pass
+    return intlistfolders, max(intlistfolders)
+
+
+# pipline for cml
+
+# import packages
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import make_pipeline, Pipeline
+from sklearn.preprocessing import StandardScaler
+
+
+def get_pipelines(options, DF, model):
+    pl_preprocessor = build_preprocessor_pipeline(DF, options["features_n"])
+
+    # Build the entire pipeline
+    pl = Pipeline(steps=[("preproc", pl_preprocessor), ("model", model)])
+
+    return pl
+
+
+def build_preprocessor_pipeline(DF):
+    # numeric column names
+    num_cols = DF.select_dtypes(exclude=["object"]).columns.tolist()
+
+    # pipeline for numerical columns
+    num_pipe = make_pipeline(SimpleImputer(strategy="median"), StandardScaler())
+
+    pl_impute_encode = ColumnTransformer([("num", num_pipe, num_cols)])
+
+    # full preprocessor pipeline
+    pl_preprocessor = Pipeline([("impute_encode", pl_impute_encode)])
+
+    return pl_preprocessor
+
+
+from datetime import datetime
+
+
+def get_expname_datetime(options):
+    # datetime object containing current date and time
+    now = datetime.now()
+    # dd/mm/YY H:M:S
+    dt_string = now.strftime("%Y%m%d-%H%M%S")
+    expname = (
+        dt_string
+        + "_"
+        + options["name"]
+        + "_"
+        + options["model"]
+        + "_"
+        + options["mode"]
+    )
+    print("exp. name =" + expname)
+    return expname
