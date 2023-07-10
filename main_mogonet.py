@@ -1,8 +1,7 @@
 """ Example for MOGONET classification
 """
 from train_test import train_test
-from models import save_model
-from utils import save_model_dict
+from utils import save_model_dict, find_numFolders_maxNumFolders
 import os
 
 if __name__ == "__main__":
@@ -12,16 +11,19 @@ if __name__ == "__main__":
     #     "Overwriting contents in existing dir"
     # )
     rootpath = os.path.dirname(os.path.realpath(__file__))
+    data_folder_path = os.path.join(rootpath, data_folder)
     model_folder_path = os.path.join(rootpath, model_folder)
 
-    view_list = [1]  # [1, 2, 3]  #  [1]  # [1,2,3]
-    num_view = len(view_list)
-    num_epoch_pretrain = 10
-    num_epoch = 50
+    num_epoch_pretrain = 100
+    num_epoch = 500
     test_interval = 5
     lr_e_pretrain = 1e-3
     lr_e = 5e-4
     lr_c = 1e-3
+
+    # view_list, _ = find_numFolders_maxNumFolders(data_folder_path)
+    view_list = [1]
+    num_view = len(view_list)
 
     if data_folder == "TEST_DATA":
         num_class = 2  # number of classes
