@@ -4,8 +4,14 @@ import torch
 import torch.nn.functional as F
 
 import pandas as pd
-from sklearn.model_selection import train_test_split
+import pickle
 
+
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import make_pipeline, Pipeline
+from sklearn.preprocessing import StandardScaler
+from datetime import datetime
 
 cuda = True if torch.cuda.is_available() else False  # use GPU if available
 
@@ -276,18 +282,13 @@ def load_model_dict(folder, model_dict):
 # data preprocessing
 
 
-def import_process_datafile(
-    raw_data_file_path, columns_to_drop, index_column, labels_dict
-):
+def import_process_datafile(raw_data_file_path, columns_to_drop, index_column):
     df = pd.read_csv(raw_data_file_path, sep=",")
     df = df.drop(columns=columns_to_drop)  # drop gene_num column
     df.set_index(index_column, inplace=False)  # set gene_name as index
     df_T = df.T
     df_T.columns = df_T.iloc[0:1].values[0]  # set the first row as column names
     df_T = df_T.iloc[1:, :]  # drop the first row
-
-    # added new column, using a dictionary labels_dict
-    df_T["disease"] = df_T.index.map(labels_dict)
 
     return df_T
 
@@ -304,9 +305,8 @@ def get_label_dict(labels_path):
 def save_feat_name(i, df, data_folder_path):
     # save the feature names as `i_featname.csv`
     df_feat = pd.DataFrame(
-        df.columns.drop(
-            ["disease"],
-        )
+        df.columns.values.tolist(),
+        columns=["feature_name"],  # , index=range(len(df.columns)
     )
     file_name = str(i) + "_featname.csv"
     file_path = os.path.join(data_folder_path, file_name)
@@ -315,30 +315,54 @@ def save_feat_name(i, df, data_folder_path):
     return
 
 
-def train_test_save(i, df, test_size, data_folder_path):
-    train, test = train_test_split(df, test_size=test_size)
+# train_test_split function
+def train_test_split(common_sample_ids, test_size, sample_folder):
+    from sklearn.model_selection import train_test_split
 
+    train, test = train_test_split(
+        list(common_sample_ids), test_size=test_size, random_state=42
+    )
+    train_test_folder = os.path.join(sample_folder, "train_test")
+    if not os.path.exists(train_test_folder):
+        os.makedirs(train_test_folder)
+    # save train and test as pickle files
+    with open(os.path.join(train_test_folder, "train.pickle"), "wb") as handle:
+        pickle.dump(train, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    with open(os.path.join(train_test_folder, "test.pickle"), "wb") as handle:
+        pickle.dump(test, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    return train, test
+
+
+# save labels from the labels dict
+def save_labels(labels_dict, train, test, data_folder_path):
+    labels = pd.DataFrame.from_dict(labels_dict, orient="index")
     label_train_path = os.path.join(data_folder_path, "labels_tr.csv")
-    label_train = train["disease"]
+    label_test_path = os.path.join(data_folder_path, "labels_te.csv")
+
+    label_train = labels[labels.index.isin(train)]
     label_train.to_csv(label_train_path, header=None, index=None)
     print(
         "Labels for training set saved as `labels_tr.csv` in the folder:",
-        data_folder_path,
+        label_train_path,
     )
-    train_file_name = str(i) + "_tr.csv"
-    train_path = os.path.join(data_folder_path, train_file_name)
-    train = train.drop(columns=["disease"])
-    train.to_csv(train_path, header=None, index=None)
-    print("Training set saved as `", train_file_name, "in the folder:", train_path)
-
-    label_test_path = os.path.join(data_folder_path, "labels_te.csv")
-    label_test = test["disease"]
+    label_test = labels[labels.index.isin(test)]
     label_test.to_csv(label_test_path, header=None, index=None)
     print("Label for test set saved as `labels_te.csv` in the folder:", label_test_path)
 
+
+def train_test_save(i, df, train, test, data_folder_path):
+    # split the data into train and test using the sample ids lists in train, test lists
+    train = df[df.index.isin(train)]
+    test = df[df.index.isin(test)]
+
+    train_file_name = str(i) + "_tr.csv"
+    train_path = os.path.join(data_folder_path, train_file_name)
+    train.to_csv(train_path, header=None, index=None)
+    print("Training set saved as `", train_file_name, "in the folder:", train_path)
+
     test_file_name = str(i) + "_te.csv"
     test_path = os.path.join(data_folder_path, test_file_name)
-    test = test.drop(columns=["disease"])
     test.to_csv(test_path, header=None, index=None)
     print("Test set saved as`", test_file_name, "in the folder:", test_path)
 
@@ -403,15 +427,9 @@ def find_numFolders_maxNumFolders(input):
 
 # pipline for cml
 
-# import packages
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import make_pipeline, Pipeline
-from sklearn.preprocessing import StandardScaler
-
 
 def get_pipelines(options, DF, model):
-    pl_preprocessor = build_preprocessor_pipeline(DF, options["features_n"])
+    pl_preprocessor = build_preprocessor_pipeline(DF)
 
     # Build the entire pipeline
     pl = Pipeline(steps=[("preproc", pl_preprocessor), ("model", model)])
@@ -434,22 +452,41 @@ def build_preprocessor_pipeline(DF):
     return pl_preprocessor
 
 
-from datetime import datetime
-
-
 def get_expname_datetime(options):
     # datetime object containing current date and time
     now = datetime.now()
     # dd/mm/YY H:M:S
     dt_string = now.strftime("%Y%m%d-%H%M%S")
-    expname = (
-        dt_string
-        + "_"
-        + options["name"]
-        + "_"
-        + options["model"]
-        + "_"
-        + options["mode"]
-    )
+    expname = options["model"] + "_" + options["mode"] + "_" + dt_string
     print("exp. name =" + expname)
     return expname
+
+
+# print epoch loss
+def print_epoch_loss(epoch, train_loss, test_loss):
+    print("Epoch: %d, train loss: %f, test loss: %f" % (epoch, train_loss, test_loss))
+    return
+
+
+# key as x axis and values which are dictionaries as y axis
+def plot_epoch_loss(epoch_loss_dict, fig_path):
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    import seaborn as sns
+    import os
+
+    # convert epoch loss dictionary to dataframe
+    df = pd.DataFrame.from_dict(epoch_loss_dict)
+    df = df.transpose()
+    df = df.reset_index()
+    df = df.rename(columns={"index": "epoch"})
+    df = df.melt("epoch", var_name="cols", value_name="vals")
+    # plot epoch loss
+    plt.figure()
+    ax = sns.lineplot(x="epoch", y="vals", hue="cols", data=df)
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Loss per epoch")
+    plt.savefig(fig_path)
+    plt.show()
+    return
