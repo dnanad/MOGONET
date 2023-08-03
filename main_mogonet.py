@@ -1,11 +1,12 @@
 """ Example for MOGONET classification
 """
 from train_test import train_test
-from utils import save_model_dict, find_numFolders_maxNumFolders
+from utils import save_model_dict, find_numFolders_maxNumFolders, plot_epoch_loss
 import os
+from datetime import datetime
 
 if __name__ == "__main__":
-    data_folder = "TEST_DATA"  # "ROSMAP"
+    data_folder = "TEST_DATA"  # "PE_cfRNA"  # "TEST_DATA"  # "ROSMAP"
     model_folder = os.path.join(data_folder, "models")
     # os.makedirs(model_folder) if not os.path.exists(model_folder) else print(
     #     "Overwriting contents in existing dir"
@@ -14,17 +15,29 @@ if __name__ == "__main__":
     data_folder_path = os.path.join(rootpath, data_folder)
     model_folder_path = os.path.join(rootpath, model_folder)
 
-    num_epoch_pretrain = 100
-    num_epoch = 500
-    test_interval = 5
+    num_epoch_pretrain = 50
+    num_epoch = 250
+    test_interval = 50
     lr_e_pretrain = 1e-3
     lr_e = 5e-4
     lr_c = 1e-3
 
-    # view_list, _ = find_numFolders_maxNumFolders(data_folder_path)
-    view_list = [1]
+    exp_epoch = str(num_epoch_pretrain) + "_" + str(num_epoch)
+    model_describe = os.path.join(model_folder_path, exp_epoch)
+    now = datetime.now()
+    dt_string = now.strftime("%Y%m%d-%H%M%S")
+    latest_model = model_describe + "_" + dt_string
+    fig_file_name = exp_epoch + "_" + dt_string + "_epoch_loss.png"
+    fig_path = os.path.join(latest_model, fig_file_name)
+
+    view_list, _ = find_numFolders_maxNumFolders(data_folder_path)
+    # view_list = [1]
     num_view = len(view_list)
 
+    if data_folder == "PE_cfRNA":
+        num_class = 2
+        adj_parameter = 2
+        dim_he_list = [400, 400, 200]
     if data_folder == "TEST_DATA":
         num_class = 2  # number of classes
         adj_parameter = 2  # number of neighbors for each node
@@ -38,7 +51,7 @@ if __name__ == "__main__":
         adj_parameter = 10
         dim_he_list = [400, 400, 200]
 
-    model_dict = train_test(
+    model_dict, epoch_loss_dict = train_test(
         data_folder,
         view_list,
         num_class,
@@ -53,4 +66,6 @@ if __name__ == "__main__":
     )
 
     # save the model
-    save_model_dict(model_folder_path, model_dict)
+
+    save_model_dict(latest_model, model_dict)
+    plot_epoch_loss(epoch_loss_dict, fig_path)
