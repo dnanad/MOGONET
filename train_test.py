@@ -2,7 +2,14 @@
 """
 import os
 import numpy as np
+import matplotlib.pyplot as plt
+
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, confusion_matrix
+from sklearn.model_selection import GridSearchCV
+import graphviz
+from sklearn.tree import export_graphviz
+from xgboost import plot_tree as xgb_plot_tree
+
 import torch
 import torch.nn.functional as F
 from models import init_model_dict, init_optim
@@ -97,7 +104,7 @@ def prepare_trte_data(data_folder, view_list):
 def gen_trte_adj_mat(data_tr_list, data_trte_list, trte_idx, adj_parameter):
     """Generate adjacency matrices for training and testing
 
-    input:
+    Parameters:
     ----------
     data_tr_list: list of torch tensor
         training data for each view
@@ -108,7 +115,7 @@ def gen_trte_adj_mat(data_tr_list, data_trte_list, trte_idx, adj_parameter):
     adj_parameter : dict
         parameters for generating adjacency matrices
 
-    output:
+    Returns:
     ----------
     adj_train_list : list of torch tensor
         adjacency matrices for training
@@ -146,7 +153,7 @@ def train_epoch(
 ):
     """Train one epoch
 
-    input:
+    Attributes:
     ----------
     data_list : list of torch tensor
         training data for each view
@@ -165,7 +172,7 @@ def train_epoch(
     train_VCDN : bool
         whether to train VCDN
 
-    output:
+    Returns:
     ----------
     loss_dict : dict
         losses for each view
@@ -217,7 +224,7 @@ def train_epoch(
 def test_epoch(data_list, adj_list, te_idx, model_dict):
     """Test one epoch
 
-    input:
+    Attributes:
     ----------
     data_list : list of torch tensor
         testing data for each view
@@ -228,7 +235,7 @@ def test_epoch(data_list, adj_list, te_idx, model_dict):
     model_dict : dict
         models for each view
 
-    output:
+    Returns:
     ----------
     prob : numpy array
         predicted probabilities
@@ -239,7 +246,8 @@ def test_epoch(data_list, adj_list, te_idx, model_dict):
     ci_list = []
     for i in range(num_view):  # get predicted labels for each view
         ci_list.append(
-            model_dict["C{:}".format(i + 1)](  # get predicted labels
+            # get predicted labels
+            model_dict["C{:}".format(i + 1)](
                 model_dict["E{:}".format(i + 1)](
                     data_list[i], adj_list[i]
                 )  # get embeddings
@@ -270,7 +278,7 @@ def train_test(
 ):
     """Train and test VCDN
 
-    input:
+    Attributes:
     ----------
     data_folder : str
         name of dataset
@@ -295,68 +303,65 @@ def train_test(
     test_interval : int
         interval for testing
 
-    output:
+    Returns:
     ----------
     prob : numpy array
         predicted probabilities
     """
     num_view = len(view_list)  # get number of views
     dim_hvcdn = pow(num_class, num_view)  # get dimension of hidden layer for VCDN
-    # if data_folder == "TEST_DATA":
-    #     adj_parameter = 2
-    #     dim_he_list = [600, 600, 400]
-    # if data_folder == "ROSMAP":
-    #     adj_parameter = 2
-    #     dim_he_list = [200, 200, 100]
-    # if data_folder == "BRCA":
-    #     adj_parameter = 10
-    #     dim_he_list = [400, 400, 200]
+    # prepare training and testing data
     (
         data_tr_list,
         data_trte_list,
         trte_idx,
         labels_trte,
-    ) = prepare_trte_data(  # prepare training and testing data
-        data_folder, view_list
-    )
-    labels_tr_tensor = torch.LongTensor(
-        labels_trte[trte_idx["tr"]]
-    )  # get training labels
-    onehot_labels_tr_tensor = one_hot_tensor(
-        labels_tr_tensor, num_class
-    )  # get one-hot training labels
-    sample_weight_tr = cal_sample_weight(
-        labels_trte[trte_idx["tr"]], num_class
-    )  # get sample weights
-    sample_weight_tr = torch.FloatTensor(
-        sample_weight_tr
-    )  # convert sample weights to torch tensor
+    ) = prepare_trte_data(data_folder, view_list)
+
+    # get training labels
+    labels_tr_tensor = torch.LongTensor(labels_trte[trte_idx["tr"]])
+
+    # get one-hot training labels
+    onehot_labels_tr_tensor = one_hot_tensor(labels_tr_tensor, num_class)
+
+    # get sample weights
+    sample_weight_tr = cal_sample_weight(labels_trte[trte_idx["tr"]], num_class)
+
+    # convert sample weights to torch tensor
+    sample_weight_tr = torch.FloatTensor(sample_weight_tr)
     if cuda:  # move tensors to GPU
         labels_tr_tensor = labels_tr_tensor.cuda()
         onehot_labels_tr_tensor = onehot_labels_tr_tensor.cuda()
         sample_weight_tr = sample_weight_tr.cuda()
+
+    # generate adjacency matrices for training and testing
     (
         adj_tr_list,
         adj_te_list,
-    ) = gen_trte_adj_mat(  # generate adjacency matrices for training and testing
-        data_tr_list, data_trte_list, trte_idx, adj_parameter
-    )
+    ) = gen_trte_adj_mat(data_tr_list, data_trte_list, trte_idx, adj_parameter)
     dim_list = [
         x.shape[1] for x in data_tr_list
     ]  # get dimensions of features for each view
-    model_dict = init_model_dict(
-        num_view, num_class, dim_list, dim_he_list, dim_hvcdn
-    )  # initialize models
-    for m in model_dict:  # move models to GPU
+
+    # initialize models
+    model_dict = init_model_dict(num_view, num_class, dim_list, dim_he_list, dim_hvcdn)
+
+    # move models to GPU
+    for m in model_dict:
         if cuda:
             model_dict[m].cuda()
 
-    print("\nPretrain GCNs...")  # pretrain GCNs
-    optim_dict = init_optim(
-        num_view, model_dict, lr_e_pretrain, lr_c
-    )  # initialize optimizers
-    for epoch in range(num_epoch_pretrain):  # pretrain GCNs
-        train_epoch(  # train one epoch
+    # pretrain GCNs
+    print("\nPretrain GCNs...")
+
+    # initialize optimizers
+    optim_dict = init_optim(num_view, model_dict, lr_e_pretrain, lr_c)
+
+    for epoch in range(num_epoch_pretrain):
+        if epoch % test_interval == 0:
+            print("Preptarin epoch {:}".format(epoch))
+        # pretrain one epoch
+        train_epoch(
             data_tr_list,
             adj_tr_list,
             labels_tr_tensor,
@@ -366,10 +371,13 @@ def train_test(
             optim_dict,
             train_VCDN=False,
         )
-    print("\nTraining...")  # train VCDN
+
+    # traning the GCNs and the classifier
+    print("\nTraining...")
     optim_dict = init_optim(num_view, model_dict, lr_e, lr_c)  # initialize optimizers
-    for epoch in range(num_epoch + 1):  # train VCDN
-        train_epoch(  # train one epoch
+    epoch_loss = {}
+    for epoch in range(num_epoch + 1):
+        loss_dict = train_epoch(  # train one epoch
             data_tr_list,
             adj_tr_list,
             labels_tr_tensor,
@@ -378,6 +386,7 @@ def train_test(
             model_dict,
             optim_dict,
         )
+        epoch_loss[epoch] = loss_dict  # save loss
         if epoch % test_interval == 0:  # test
             te_prob = test_epoch(  # test one epoch
                 data_trte_list, adj_te_list, trte_idx["te"], model_dict
@@ -435,3 +444,179 @@ def train_test(
                         )
                     )
                 )
+    print("\nTraining finished!")
+
+    return model_dict, epoch_loss
+
+
+def calc_score(y, yhat):
+    """Calculate accuracy, F1 score, AUC, and confusion matrix.
+
+    Attributes:
+    y: list
+        true labels
+    yhat: list
+        predicted labels
+
+    Returns:
+    acc: float
+        accuracy
+    f1: float
+        F1 score
+    auc: float
+        AUC
+    cm: array
+        confusion matrix
+    """
+    acc = accuracy_score(y, yhat)
+    f1 = f1_score(y, yhat)
+    auc = roc_auc_score(y, yhat)
+    cm = confusion_matrix(y, yhat)
+
+    return (acc, f1, auc, cm)
+
+
+def fit_predict_evaluate(
+    options,
+    pl,
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    GSparameters,
+    Savepath,
+    rootfigname,
+    threshold,
+    cm_normalised,
+):
+    ####################### TODO: add correct columns to DF_train and DF_test
+    # y_train = DF_train[""]
+    # X_train = DF_train.drop("", axis=1)
+
+    # y_test = DF_test[""]
+    # X_test = DF_test.drop("", axis=1)
+
+    if options["mode"] == "test":
+        print(f"Performing test run with default hyperparameters")
+
+        # Fit - Predict
+        print("Fitting the model...")
+        pl.fit(X_train, y_train)
+
+    elif options["mode"] == "gridsearch":
+        if GSparameters is None:
+            raise (
+                ValueError(
+                    "GSparameters is not defined (models.py) for the chosen model."
+                )
+            )
+        print("Performing a gridsearch")
+        grid = GridSearchCV(pl, GSparameters, cv=5, n_jobs=-1).fit(X_train, y_train)
+        best_params = grid.best_params_
+        print(f" - best model parameters:{best_params}")
+        # Store the optimum model in best_pipe
+        best_pipe = grid.best_estimator_
+        pl = best_pipe
+
+    # Evaluate
+    print("Predicting and evaluating...")
+    y_test_predict = pl.predict(X_test)
+    y_proba = pl.predict_proba(X_test)
+
+    yyhat_dict = {"test": {"y": y_test, "yhat": y_test_predict, "yproba": y_proba}}
+
+    scores = get_skill_scores(yyhat_dict)
+
+    skill_vis(yyhat_dict, Savepath, rootfigname, cm_normalised=cm_normalised)
+    # model_vis(options, pl["model"], Savepath)
+
+    return scores
+
+
+def get_skill_scores(yyhat_dict):
+    scores = {}
+    for key in yyhat_dict.keys():
+        y = yyhat_dict[key]["y"]
+        yhat = yyhat_dict[key]["yhat"]
+
+        # calculate scores
+        acc, f1, auc, cm = calc_score(y, yhat)
+        scores[key] = {"ACC": acc, "F1": f1, "AUC": auc, "CM": cm}
+
+        print(
+            f"%s scores: ACC = %.3f, F1 = %.3f, AUC = %.3f, (n:%d)"
+            % (key, acc, f1, auc, len(y))
+        )
+
+        print("Confusion Matrix: \n", cm)
+
+    return scores
+
+
+def skill_vis(
+    yyhat_dict,
+    Savepath,
+    rootfigname,
+    cm_normalised=False,
+):
+    import scikitplot as skplt
+
+    for i, key in enumerate(yyhat_dict.keys()):
+        y = yyhat_dict[key]["y"].to_numpy().flatten()
+        yhat = yyhat_dict[key]["yhat"]
+        yproba = yyhat_dict[key]["yproba"]
+
+        # save each figure seprpately
+        skplt.metrics.plot_confusion_matrix(
+            y, yhat, normalize=cm_normalised, title="Confusion Matrix", figsize=(8, 8)
+        )
+        # save plot
+        image_name = rootfigname + "_" + str(i) + "_cm.png"  #
+        figpath = os.path.join(Savepath, image_name)
+        # save the above given path
+        plt.savefig(figpath)
+
+        skplt.metrics.plot_roc(y, yproba, title="ROC Plot")
+        # save plot
+        image_name = rootfigname + "_" + str(i) + "_roc.png"  #
+        figpath = os.path.join(Savepath, image_name)
+        # save the above given path
+        plt.savefig(figpath)
+
+        skplt.metrics.plot_precision_recall(y, yproba, title="PR Curve")
+        # save plot
+        image_name = rootfigname + "_" + str(i) + "_pr.png"  #
+        figpath = os.path.join(Savepath, image_name)
+        # save the above given path
+        plt.savefig(figpath)
+
+        fig, ax = plt.subplots(1, 2)
+        skplt.metrics.plot_cumulative_gain(
+            y, yproba, title="Cumulative Gains Chart", ax=ax[0]
+        )
+        skplt.metrics.plot_lift_curve(y, yproba, ax=ax[1], title="Lift Curve")
+        # save plot
+        image_name = rootfigname + "_" + str(i) + "_gain_lift.png"  #
+        figpath = os.path.join(Savepath, image_name)
+        # save the above given path
+        fig.savefig(figpath)
+
+    print(f"Saved figure: {figpath}")
+
+
+# plt.figure(figsize=(15,7))
+# grid = plt.GridSpec(2, 3, wspace=0.3, hspace=0.4)
+
+# for i in range(6):
+
+#     col, row = i%3,i//3
+#     ax = plt.subplot(grid[row,col])
+#     ax.title.set_color('blue')
+
+#     model = classifiers[i]
+#     skplt.metrics.plot_roc(y_test, model.predict_proba(X_test), ax=ax, title=type(cls).__name__)
+
+# plt.show()
+
+# fpr, tpr, thresholds = metrics.roc_curve(y, pred, pos_label=2)
+# metrics.auc(fpr, tpr)
