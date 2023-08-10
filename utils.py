@@ -268,8 +268,8 @@ def load_model_dict(folder, model_dict):
             print("Module {:} loaded!".format(module))
             model_dict[module].load_state_dict(
                 torch.load(
-                    os.path.join(folder, module + ".pth"),
-                    map_location="cuda:{:}".format(torch.cuda.current_device()),
+                    os.path.join(folder, module + ".pth")
+                    # map_location="cuda:{:}".format(torch.cuda.current_device()),
                 )
             )
         else:
@@ -349,6 +349,54 @@ def save_labels(labels_dict, train, test, data_folder_path):
     label_test = labels[labels.index.isin(test)]
     label_test.to_csv(label_test_path, header=None, index=None)
     print("Label for test set saved as `labels_te.csv` in the folder:", label_test_path)
+
+
+def save_sample_ids(sample_ids_dict, sample_folder):
+    if not os.path.exists(sample_folder):  # if the sample folder does not exist
+        os.makedirs(sample_folder)  # create the sample folder
+    # save sample_ids_dict dictionary as pickle file
+    with open(
+        os.path.join(sample_folder, "sample_ids_dict.pickle"), "wb"
+    ) as handle:  # path to the sample_ids_dict pickle file
+        pickle.dump(
+            sample_ids_dict, handle, protocol=pickle.HIGHEST_PROTOCOL
+        )  # save the sample_ids_dict pickle file
+
+    return print("Sample ids saved as pickle file at: ", sample_folder)
+
+
+def find_common_sample_ids(sample_ids_dict, sample_folder):
+    common_sample_ids = set.intersection(
+        *map(set, sample_ids_dict.values())
+    )  # get the common sample ids
+    with open(
+        os.path.join(sample_folder, "common_sample_ids.pickle"), "wb"
+    ) as handle:  # path to the common_sample_ids pickle file
+        pickle.dump(
+            common_sample_ids, handle, protocol=pickle.HIGHEST_PROTOCOL
+        )  # save the common_sample_ids pickle file
+    return common_sample_ids
+
+
+def omicwise_filtering(omics_list, data_folder_path, common_sample_ids):
+    """Filter the omic data based on the common sample ids"""
+    for i in omics_list:
+        omic_path = os.path.join(data_folder_path, str(i))
+        processed_data_file_name = (
+            str(i) + "_processed_data.csv"
+        )  # name of the processed data file
+        df = pd.read_csv(
+            os.path.join(omic_path, processed_data_file_name), index_col=0
+        )  # read the processed data file
+        df = df[df.index.isin(common_sample_ids)]  # keep the common samples
+        common_processed_data_file_name = (
+            str(i) + "_common_processed_data.csv"
+        )  # name of the common processed data file
+        df.to_csv(
+            os.path.join(omic_path, common_processed_data_file_name)
+        )  # save the common processed data file
+
+    return df
 
 
 def train_test_save(i, df, train, test, data_folder_path):
