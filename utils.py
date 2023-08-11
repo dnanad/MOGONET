@@ -302,53 +302,170 @@ def get_label_dict(labels_path):
     return label_dict
 
 
-def save_feat_name(i, df, data_folder_path):
-    # save the feature names as `i_featname.csv`
+def save_feat_name(j, df, data_folder_path, i, CV=False):
+    # save the feature names as `j_featname.csv`
     df_feat = pd.DataFrame(
         df.columns.values.tolist(),
         columns=["feature_name"],  # , index=range(len(df.columns)
     )
-    file_name = str(i) + "_featname.csv"
-    file_path = os.path.join(data_folder_path, file_name)
-    df_feat.to_csv(file_path, header=None, index=None)
+    if CV:
+        folder_name = "CV"
+        folder_path = os.path.join(data_folder_path, folder_name)
+        if not os.path.exists(folder_path):  # if the "CV" folder does not exist
+            os.makedirs(folder_path)  # create the folder
+        cv_folder = os.path.join(folder_path, "CV_" + str(i))
+        if not os.path.exists(cv_folder):  # if the "CV_i" folder does not exist
+            os.makedirs(cv_folder)  # create the folder
+        file_name = str(j) + "_featname.csv"
+        file_path = os.path.join(cv_folder, file_name)
+        df_feat.to_csv(file_path, header=None, index=None)
+
+    else:
+        folder_name = "NOT_CV"
+        folder_path = os.path.join(data_folder_path, folder_name)
+        if not os.path.exists(folder_path):  # if the "NOT_CV" folder does not exist
+            os.makedirs(folder_path)  # create the folder
+
+        file_name = str(j) + "_featname.csv"
+        file_path = os.path.join(folder_path, file_name)
+        df_feat.to_csv(file_path, header=None, index=None)
 
     return
 
 
 # train_test_split function
-def train_test_split(common_sample_ids, test_size, sample_folder):
-    from sklearn.model_selection import train_test_split
+def train_test_split(common_sample_ids, test_size, sample_folder, n_splits, CV=False):
+    if CV:
+        from sklearn.model_selection import KFold
 
-    train, test = train_test_split(
-        list(common_sample_ids), test_size=test_size, random_state=42
-    )
-    train_test_folder = os.path.join(sample_folder, "train_test")
-    if not os.path.exists(train_test_folder):
-        os.makedirs(train_test_folder)
-    # save train and test as pickle files
-    with open(os.path.join(train_test_folder, "train.pickle"), "wb") as handle:
-        pickle.dump(train, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    with open(os.path.join(train_test_folder, "test.pickle"), "wb") as handle:
-        pickle.dump(test, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        kf = KFold(n_splits=n_splits, shuffle=False)
+        kf.get_n_splits(common_sample_ids)
+        train_test_folder = os.path.join(sample_folder, "CV_train_test")
+        if not os.path.exists(train_test_folder):
+            os.makedirs(train_test_folder)
+        common_sample_ids = list(common_sample_ids)
+        # save train and test as pickle files
+        for i, (train_index, test_index) in enumerate(kf.split(common_sample_ids)):
+            cv_folder = os.path.join(train_test_folder, "CV_" + str(i))
+            train = [common_sample_ids[i] for i in train_index]
+            test = [common_sample_ids[i] for i in test_index]
+            if not os.path.exists(cv_folder):
+                os.makedirs(cv_folder)
+            with open(
+                os.path.join(cv_folder, "train_" + str(i) + ".pickle"), "wb"
+            ) as handle:
+                pickle.dump(train, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            with open(
+                os.path.join(cv_folder, "test_" + str(i) + ".pickle"), "wb"
+            ) as handle:
+                pickle.dump(test, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        from sklearn.model_selection import train_test_split
 
-    return train, test
+        train, test = train_test_split(
+            list(common_sample_ids), test_size=test_size, random_state=42
+        )
+        train_test_folder = os.path.join(sample_folder, "NOT_CV_train_test")
+        if not os.path.exists(train_test_folder):
+            os.makedirs(train_test_folder)
+        # save train and test as pickle files
+        with open(os.path.join(train_test_folder, "train.pickle"), "wb") as handle:
+            pickle.dump(train, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(os.path.join(train_test_folder, "test.pickle"), "wb") as handle:
+            pickle.dump(test, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    return train_test_folder
+
+
+def train_test_save(j, df, train, test, data_folder_path, i, CV):
+    # split the data into train and test using the sample ids lists in train, test lists
+    train = df[df.index.isin(train)]
+    test = df[df.index.isin(test)]
+
+    if CV:
+        folder_name = "CV"
+        folder_path = os.path.join(data_folder_path, folder_name)
+        if not os.path.exists(folder_path):  # if the "CV" folder does not exist
+            os.makedirs(folder_path)  # create the folder
+        cv_folder = os.path.join(folder_path, "CV_" + str(i))
+        if not os.path.exists(cv_folder):
+            os.makedirs(cv_folder)
+        train_file_name = str(j) + "_tr.csv"
+        train_path = os.path.join(cv_folder, train_file_name)
+        train.to_csv(train_path, header=None, index=None)
+        print("Training set saved as `", train_file_name, "in the folder:", folder_path)
+
+        test_file_name = str(j) + "_te.csv"
+        test_path = os.path.join(cv_folder, test_file_name)
+        test.to_csv(test_path, header=None, index=None)
+        print("Test set saved as`", test_file_name, "in the folder:", folder_path)
+
+    else:
+        folder_name = "NOT_CV"
+        folder_path = os.path.join(data_folder_path, folder_name)
+        if not os.path.exists(folder_path):  # if the "NOT_CV" folder does not exist
+            os.makedirs(folder_path)  # create the folder
+
+        train_file_name = str(j) + "_tr.csv"
+        train_path = os.path.join(folder_path, train_file_name)
+        train.to_csv(train_path, header=None, index=None)
+        print("Training set saved as `", train_file_name, "in the folder:", folder_path)
+
+        test_file_name = str(j) + "_te.csv"
+        test_path = os.path.join(folder_path, test_file_name)
+        test.to_csv(test_path, header=None, index=None)
+        print("Test set saved as`", test_file_name, "in the folder:", folder_path)
+
+    return
 
 
 # save labels from the labels dict
-def save_labels(labels_dict, train, test, data_folder_path):
+def save_labels(labels_dict, train, test, data_folder_path, i, CV=False):
     labels = pd.DataFrame.from_dict(labels_dict, orient="index")
-    label_train_path = os.path.join(data_folder_path, "labels_tr.csv")
-    label_test_path = os.path.join(data_folder_path, "labels_te.csv")
 
-    label_train = labels[labels.index.isin(train)]
-    label_train.to_csv(label_train_path, header=None, index=None)
-    print(
-        "Labels for training set saved as `labels_tr.csv` in the folder:",
-        label_train_path,
-    )
-    label_test = labels[labels.index.isin(test)]
-    label_test.to_csv(label_test_path, header=None, index=None)
-    print("Label for test set saved as `labels_te.csv` in the folder:", label_test_path)
+    if CV:
+        folder_name = "CV"
+        folder_path = os.path.join(data_folder_path, folder_name)
+        if not os.path.exists(folder_path):  # if the "CV" folder does not exist
+            os.makedirs(folder_path)  # create the folder
+        cv_folder = os.path.join(folder_path, "CV_" + str(i))
+        if not os.path.exists(cv_folder):
+            os.makedirs(cv_folder)
+        label_train_path = os.path.join(cv_folder, "labels_tr.csv")
+        label_test_path = os.path.join(cv_folder, "labels_te.csv")
+
+        label_train = labels[labels.index.isin(train)]
+        label_train.to_csv(label_train_path, header=None, index=None)
+        print(
+            "Labels for training set saved as `labels_tr.csv` in the folder:", cv_folder
+        )
+        label_test = labels[labels.index.isin(test)]
+        label_test.to_csv(label_test_path, header=None, index=None)
+        print("Label for test set saved as `labels_te.csv` in the folder:", cv_folder)
+
+    else:
+        folder_name = "NOT_CV"
+        folder_path = os.path.join(data_folder_path, folder_name)
+        if not os.path.exists(folder_path):  # if the "NOT_CV" folder does not exist
+            os.makedirs(folder_path)  # create the folder
+
+        label_train_path = os.path.join(folder_path, "labels_tr.csv")
+        label_test_path = os.path.join(folder_path, "labels_te.csv")
+
+        label_train = labels[labels.index.isin(train)]
+        label_train.to_csv(label_train_path, header=None, index=None)
+        print(
+            "Labels for training set saved as `labels_tr.csv` in the folder:",
+            label_train_path,
+        )
+        label_test = labels[labels.index.isin(test)]
+        label_test.to_csv(label_test_path, header=None, index=None)
+        print(
+            "Label for test set saved as `labels_te.csv` in the folder:",
+            label_test_path,
+        )
+
+    return
 
 
 def save_sample_ids(sample_ids_dict, sample_folder):
@@ -375,44 +492,25 @@ def find_common_sample_ids(sample_ids_dict, sample_folder):
         pickle.dump(
             common_sample_ids, handle, protocol=pickle.HIGHEST_PROTOCOL
         )  # save the common_sample_ids pickle file
-    return common_sample_ids
+    return
 
 
-def omicwise_filtering(omics_list, data_folder_path, common_sample_ids):
+def omicwise_filtering(i, data_folder_path, common_sample_ids):
     """Filter the omic data based on the common sample ids"""
-    for i in omics_list:
-        omic_path = os.path.join(data_folder_path, str(i))
-        processed_data_file_name = (
-            str(i) + "_processed_data.csv"
-        )  # name of the processed data file
-        df = pd.read_csv(
-            os.path.join(omic_path, processed_data_file_name), index_col=0
-        )  # read the processed data file
-        df = df[df.index.isin(common_sample_ids)]  # keep the common samples
-        common_processed_data_file_name = (
-            str(i) + "_common_processed_data.csv"
-        )  # name of the common processed data file
-        df.to_csv(
-            os.path.join(omic_path, common_processed_data_file_name)
-        )  # save the common processed data file
-
-    return df
-
-
-def train_test_save(i, df, train, test, data_folder_path):
-    # split the data into train and test using the sample ids lists in train, test lists
-    train = df[df.index.isin(train)]
-    test = df[df.index.isin(test)]
-
-    train_file_name = str(i) + "_tr.csv"
-    train_path = os.path.join(data_folder_path, train_file_name)
-    train.to_csv(train_path, header=None, index=None)
-    print("Training set saved as `", train_file_name, "in the folder:", train_path)
-
-    test_file_name = str(i) + "_te.csv"
-    test_path = os.path.join(data_folder_path, test_file_name)
-    test.to_csv(test_path, header=None, index=None)
-    print("Test set saved as`", test_file_name, "in the folder:", test_path)
+    omic_path = os.path.join(data_folder_path, str(i))
+    processed_data_file_name = (
+        str(i) + "_processed_data.csv"
+    )  # name of the processed data file
+    df = pd.read_csv(
+        os.path.join(omic_path, processed_data_file_name), index_col=0
+    )  # read the processed data file
+    df = df[df.index.isin(common_sample_ids)]  # keep the common samples
+    common_processed_data_file_name = (
+        str(i) + "_common_processed_data.csv"
+    )  # name of the common processed data file
+    df.to_csv(
+        os.path.join(omic_path, common_processed_data_file_name)
+    )  # save the common processed data file
 
     return
 
@@ -458,6 +556,16 @@ def dataset_summary(folder_name):
         "Number of labels for TESTING:",
         pd.read_csv("./" + folder_name + "/labels_te.csv", header=None).shape[0],
     )
+
+
+# select file from a folder which doest start with a number from 0-9
+def select_file_from_folder(folder_path):
+    file_list = os.listdir(folder_path)
+    # if the file starts with a number from 0-9, remove it from the list
+    for file in file_list:
+        if file.startswith(tuple(map(str, range(10)))):
+            file_list.remove(file)
+    return file_list[0]
 
 
 def find_numFolders_maxNumFolders(input):
