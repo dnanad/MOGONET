@@ -1,6 +1,9 @@
 """ Training and testing of the model
 """
+from math import inf
 import os
+import re
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -19,6 +22,7 @@ from utils import (
     gen_adj_mat_tensor,
     gen_test_adj_mat_tensor,
     cal_adj_mat_parameter,
+    result_plot,
 )
 
 cuda = True if torch.cuda.is_available() else False  # use GPU if available
@@ -275,13 +279,13 @@ def train_test(
     num_epoch_pretrain,
     num_epoch,
     test_interval,
+    latest_model,
 ):
-    """Train and test VCDN
-
+    """Train and test
     Attributes:
     ----------
-    data_folder : str
-        name of dataset
+    folder_path : str
+        path of the folder where the data is stored
     view_list : list of str
         names of views
     num_class : int
@@ -305,8 +309,12 @@ def train_test(
 
     Returns:
     ----------
-    prob : numpy array
-        predicted probabilities
+    model_dict : dict
+        models for each view
+    epoch_loss_dict : dict
+        losses for each view
+    test_info : dict
+        test results
     """
     num_view = len(view_list)  # get number of views
     dim_hvcdn = pow(num_class, num_view)  # get dimension of hidden layer for VCDN
@@ -375,78 +383,116 @@ def train_test(
     # traning the GCNs and the classifier
     print("\nTraining...")
     optim_dict = init_optim(num_view, model_dict, lr_e, lr_c)  # initialize optimizers
-    epoch_loss = {}
-    for epoch in range(num_epoch + 1):
-        loss_dict = train_epoch(  # train one epoch
-            data_tr_list,
-            adj_tr_list,
-            labels_tr_tensor,
-            onehot_labels_tr_tensor,
-            sample_weight_tr,
-            model_dict,
-            optim_dict,
-        )
-        epoch_loss[epoch] = loss_dict  # save loss
-        if epoch % test_interval == 0:  # test
-            te_prob = test_epoch(  # test one epoch
-                data_trte_list, adj_te_list, trte_idx["te"], model_dict
+    epoch_loss_dict = {}
+    test_info = {}
+    if num_class == 2:
+        for epoch in range(num_epoch + 1):
+            loss_dict = train_epoch(  # train one epoch
+                data_tr_list,
+                adj_tr_list,
+                labels_tr_tensor,
+                onehot_labels_tr_tensor,
+                sample_weight_tr,
+                model_dict,
+                optim_dict,
             )
-            print("\nTest: Epoch {:d}".format(epoch))  # print test results
-            if num_class == 2:
+            epoch_loss_dict[epoch] = loss_dict  # save loss
+            info = {}
+            scores_df = pd.DataFrame()
+            if epoch % test_interval == 0:  # test
+                info["epoch"] = epoch
+                te_prob = test_epoch(  # test one epoch
+                    data_trte_list, adj_te_list, trte_idx["te"], model_dict
+                )
+                # info["prob"] = te_prob
+                print("\nTest: Epoch {:d}".format(epoch))  # print test results
+
+                acc = accuracy_score(labels_trte[trte_idx["te"]], te_prob.argmax(1))
+                f1 = f1_score(labels_trte[trte_idx["te"]], te_prob.argmax(1))
+                roc = roc_auc_score(labels_trte[trte_idx["te"]], te_prob[:, 1])
+                info["acc"] = acc
+                info["f1"] = f1
+                info["roc"] = roc
+                print("Test ACC: {:.3f}".format(acc))
+                print("Test F1: {:.3f}".format(f1))
+                print("Test AUC: {:.3f}".format(roc))
+            if epoch == num_epoch:
+                acc_final = accuracy_score(
+                    labels_trte[trte_idx["te"]], te_prob.argmax(1)
+                )
+                f1_final = f1_score(labels_trte[trte_idx["te"]], te_prob.argmax(1))
+                roc_final = roc_auc_score(labels_trte[trte_idx["te"]], te_prob[:, 1])
+                print(
+                    "Total number of samples in test set: {:d}".format(
+                        len(trte_idx["te"])
+                    )
+                )
+                print(
+                    "Confusion Matrix: \n",
+                    confusion_matrix(labels_trte[trte_idx["te"]], te_prob.argmax(1)),
+                )
+                result_plot(
+                    labels_trte[trte_idx["te"]], te_prob, latest_model=latest_model
+                )
+                # create the scores in a dataframe
+                scores_df["ACC"] = [acc_final]
+                scores_df["F1"] = [f1_final]
+                scores_df["AUC"] = [roc_final]
+                scores_df["CM"] = [
+                    confusion_matrix(labels_trte[trte_idx["te"]], te_prob.argmax(1))
+                ]
+
+    else:
+        for epoch in range(num_epoch + 1):
+            loss_dict = train_epoch(  # train one epoch
+                data_tr_list,
+                adj_tr_list,
+                labels_tr_tensor,
+                onehot_labels_tr_tensor,
+                sample_weight_tr,
+                model_dict,
+                optim_dict,
+            )
+            epoch_loss_dict[epoch] = loss_dict  # save loss
+            info = {}
+            scores_df = pd.DataFrame()
+            if epoch % test_interval == 0:  # test
+                info["epoch"] = epoch
+                te_prob = test_epoch(  # test one epoch
+                    data_trte_list, adj_te_list, trte_idx["te"], model_dict
+                )
+                # info["prob"] = te_prob
+                print("\nTest: Epoch {:d}".format(epoch))  # print test results
+
+                acc = accuracy_score(labels_trte[trte_idx["te"]], te_prob.argmax(1))
+                f1_weighted = f1_score(
+                    labels_trte[trte_idx["te"]], te_prob.argmax(1), average="weighted"
+                )
+                f1_macro = f1_score(
+                    labels_trte[trte_idx["te"]],
+                    te_prob.argmax(1),
+                    average="macro",
+                )
+                info["acc"] = acc
+                info["f1_weighted"] = f1_weighted
+                info["f1_macro"] = f1_macro
                 print(
                     "Test ACC: {:.3f}".format(
                         accuracy_score(labels_trte[trte_idx["te"]], te_prob.argmax(1))
                     )
                 )
-                print(
-                    "Test F1: {:.3f}".format(
-                        f1_score(labels_trte[trte_idx["te"]], te_prob.argmax(1))
-                    )
-                )
-                print(
-                    "Test AUC: {:.3f}".format(
-                        roc_auc_score(labels_trte[trte_idx["te"]], te_prob[:, 1])
-                    )
-                )
-                if epoch == num_epoch:
-                    print(
-                        "Total number of samples in test set: {:d}".format(
-                            len(trte_idx["te"])
-                        )
-                    )
-                    print(
-                        "Confusion Matrix: \n",
-                        confusion_matrix(
-                            labels_trte[trte_idx["te"]], te_prob.argmax(1)
-                        ),
-                    )
-            else:
-                print(
-                    "Test ACC: {:.3f}".format(
-                        accuracy_score(labels_trte[trte_idx["te"]], te_prob.argmax(1))
-                    )
-                )
-                print(
-                    "Test F1 weighted: {:.3f}".format(
-                        f1_score(
-                            labels_trte[trte_idx["te"]],
-                            te_prob.argmax(1),
-                            average="weighted",
-                        )
-                    )
-                )
-                print(
-                    "Test F1 macro: {:.3f}".format(
-                        f1_score(
-                            labels_trte[trte_idx["te"]],
-                            te_prob.argmax(1),
-                            average="macro",
-                        )
-                    )
-                )
+                print("Test F1 weighted: {:.3f}".format(f1_weighted))
+                print("Test F1 macro: {:.3f}".format(f1_macro))
+
+            if epoch == num_epoch:
+                # create the scores in a dataframe
+                scores_df["ACC"] = [acc]
+                scores_df["F1_weighted"] = [f1_weighted]
+                scores_df["F1_macro"] = [f1_macro]
+        test_info[epoch] = info
     print("\nTraining finished!")
 
-    return model_dict, epoch_loss
+    return model_dict, epoch_loss_dict, test_info, scores_df
 
 
 def calc_score(y, yhat):
@@ -573,6 +619,8 @@ def skill_vis(
         # save plot
         image_name = rootfigname + "_" + str(i) + "_cm.png"  #
         figpath = os.path.join(Savepath, image_name)
+        if not os.path.exists(Savepath):
+            os.makedirs(Savepath)
         # save the above given path
         plt.savefig(figpath)
 
