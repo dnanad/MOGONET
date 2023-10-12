@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 
 import pandas as pd
+import matplotlib.pyplot as plt
 import pickle
 
 
@@ -321,9 +322,9 @@ def save_feat_name(j, df, data_folder_path, i, CV=False):
         df_feat.to_csv(file_path, header=None, index=None)
 
     else:
-        folder_name = "NOT_CV"
+        folder_name = "NO_CV"
         folder_path = os.path.join(data_folder_path, folder_name)
-        if not os.path.exists(folder_path):  # if the "NOT_CV" folder does not exist
+        if not os.path.exists(folder_path):  # if the "NO_CV" folder does not exist
             os.makedirs(folder_path)  # create the folder
 
         file_name = str(j) + "_featname.csv"
@@ -365,7 +366,7 @@ def train_test_split(common_sample_ids, test_size, sample_folder, n_splits, CV=F
         train, test = train_test_split(
             list(common_sample_ids), test_size=test_size, random_state=42
         )
-        train_test_folder = os.path.join(sample_folder, "NOT_CV_train_test")
+        train_test_folder = os.path.join(sample_folder, "NO_CV_train_test")
         if not os.path.exists(train_test_folder):
             os.makedirs(train_test_folder)
         # save train and test as pickle files
@@ -401,9 +402,9 @@ def train_test_save(j, df, train, test, data_folder_path, i, CV):
         print("Test set saved as`", test_file_name, "in the folder:", folder_path)
 
     else:
-        folder_name = "NOT_CV"
+        folder_name = "NO_CV"
         folder_path = os.path.join(data_folder_path, folder_name)
-        if not os.path.exists(folder_path):  # if the "NOT_CV" folder does not exist
+        if not os.path.exists(folder_path):  # if the "NO_CV" folder does not exist
             os.makedirs(folder_path)  # create the folder
 
         train_file_name = str(j) + "_tr.csv"
@@ -444,9 +445,9 @@ def save_labels(labels_dict, train, test, data_folder_path, i, CV=False):
         print("Label for test set saved as `labels_te.csv` in the folder:", cv_folder)
 
     else:
-        folder_name = "NOT_CV"
+        folder_name = "NO_CV"
         folder_path = os.path.join(data_folder_path, folder_name)
-        if not os.path.exists(folder_path):  # if the "NOT_CV" folder does not exist
+        if not os.path.exists(folder_path):  # if the "NO_CV" folder does not exist
             os.makedirs(folder_path)  # create the folder
 
         label_train_path = os.path.join(folder_path, "labels_tr.csv")
@@ -471,27 +472,31 @@ def save_labels(labels_dict, train, test, data_folder_path, i, CV=False):
 def save_sample_ids(sample_ids_dict, sample_folder):
     if not os.path.exists(sample_folder):  # if the sample folder does not exist
         os.makedirs(sample_folder)  # create the sample folder
-    # save sample_ids_dict dictionary as pickle file
-    with open(
-        os.path.join(sample_folder, "sample_ids_dict.pickle"), "wb"
-    ) as handle:  # path to the sample_ids_dict pickle file
-        pickle.dump(
-            sample_ids_dict, handle, protocol=pickle.HIGHEST_PROTOCOL
-        )  # save the sample_ids_dict pickle file
+
+    sample_ids_dict_save = os.path.join(sample_folder, "sample_ids_dict.pickle")
+
+    if not os.path.exists(sample_ids_dict_save):
+        # save sample_ids_dict dictionary as pickle file
+        with open(
+            sample_ids_dict_save, "wb"
+        ) as handle:  # path to the sample_ids_dict pickle file
+            pickle.dump(
+                sample_ids_dict, handle, protocol=pickle.HIGHEST_PROTOCOL
+            )  # save the sample_ids_dict pickle file
 
     return print("Sample ids saved as pickle file at: ", sample_folder)
 
 
 def find_common_sample_ids(sample_ids_dict, sample_folder):
-    common_sample_ids = set.intersection(
-        *map(set, sample_ids_dict.values())
-    )  # get the common sample ids
-    with open(
-        os.path.join(sample_folder, "common_sample_ids.pickle"), "wb"
-    ) as handle:  # path to the common_sample_ids pickle file
-        pickle.dump(
-            common_sample_ids, handle, protocol=pickle.HIGHEST_PROTOCOL
-        )  # save the common_sample_ids pickle file
+    common_samples = os.path.join(sample_folder, "common_sample_ids.pickle")
+    if not os.path.exists(common_samples):
+        common_sample_ids = set.intersection(*map(set, sample_ids_dict.values()))
+        with open(
+            common_samples, "wb"
+        ) as handle:  # path to the common_sample_ids pickle file
+            pickle.dump(
+                common_sample_ids, handle, protocol=pickle.HIGHEST_PROTOCOL
+            )  # save the common_sample_ids pickle file
     return
 
 
@@ -646,3 +651,64 @@ def plot_epoch_loss(epoch_loss_dict, fig_path):
     plt.savefig(fig_path)
     plt.show()
     return
+
+
+def result_plot(
+    labels,
+    prob,
+    latest_model,
+    cm_normalised=False,
+):
+    if not os.path.exists(latest_model):
+        os.makedirs(latest_model)
+    model_name = os.path.basename(os.path.normpath(latest_model))
+    import scikitplot as skplt
+
+    y = labels
+    # yhat = yyhat_dict[key]["yhat"]
+    yproba = prob
+    # save each figure seprpately
+    skplt.metrics.plot_confusion_matrix(
+        y,
+        yproba.argmax(1),
+        normalize=cm_normalised,
+        title="Confusion Matrix: " + model_name,
+        figsize=(8, 8),
+    )
+    # save plot
+    image_name = "mogonet_" + model_name + "_cm.png"  #
+    figpath = os.path.join(latest_model, image_name)
+    # save the above given path
+    plt.savefig(figpath)
+
+    skplt.metrics.plot_roc(y, yproba, title="ROC Plot: " + model_name)
+    # save plot
+    image_name = "mogonet_" + model_name + "_roc.png"  #
+    figpath = os.path.join(latest_model, image_name)
+    # save the above given path
+    plt.savefig(figpath)
+
+    skplt.metrics.plot_precision_recall(y, yproba, title="PR Curve: " + model_name)
+    # save plot
+    image_name = "mogonet_" + model_name + "_pr.png"  #
+    figpath = os.path.join(latest_model, image_name)
+    # save the above given path
+    plt.savefig(figpath)
+
+    skplt.metrics.plot_cumulative_gain(
+        y, yproba, title="Cumulative Gains Chart: " + model_name
+    )
+    # save plot
+    image_name = "mogonet_" + model_name + "_gain.png"  #
+    figpath = os.path.join(latest_model, image_name)
+    # save the above given path
+    plt.savefig(figpath)
+
+    skplt.metrics.plot_lift_curve(y, yproba, title="Lift Curve: " + model_name)
+    # save plot
+    image_name = "mogonet_" + model_name + "_lift.png"  #
+    figpath = os.path.join(latest_model, image_name)
+    # save the above given path
+    plt.savefig(figpath)
+
+    print(f"Saved figure: {figpath}")
