@@ -49,3 +49,5 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
+main_cml.py
+main_result_aggregator.py
