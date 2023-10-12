@@ -13,7 +13,7 @@ cuda = True if torch.cuda.is_available() else False
 
 
 def cal_feat_imp(
-    data_folder, model_folder, view_list, num_class, adj_parameter, dim_he_list
+    data_folder, exp_path, view_list, num_class, adj_parameter, dim_he_list
 ):
     """Calculate feature importance
 
@@ -21,8 +21,8 @@ def cal_feat_imp(
     ----------
     data_folder : str
         Folder name of the dataset
-    model_folder : str
-        Folder name of the model
+    exp_path : str
+        Folder name for the experiment
     view_list : list
         List of views
     num_class : int
@@ -74,7 +74,7 @@ def cal_feat_imp(
         if cuda:
             model_dict[m].cuda()
     # load model
-    model_dict = load_model_dict(model_folder, model_dict)
+    model_dict = load_model_dict(exp_path, model_dict)
     te_prob = test_epoch(data_trte_list, adj_te_list, trte_idx["te"], model_dict)
     if num_class == 2:
         f1 = f1_score(labels_trte[trte_idx["te"]], te_prob.argmax(1))
@@ -106,8 +106,9 @@ def cal_feat_imp(
                 f1_tmp = f1_score(
                     labels_trte[trte_idx["te"]], te_prob.argmax(1), average="macro"
                 )
-            feat_imp["imp"][j] = (f1 - f1_tmp) * dim_list[i]
-
+            feat_imp["imp"][j] = (f1 - f1_tmp) * dim_list[
+                i
+            ]  # calculate the difference in f1 score and multiply by the number of features
             # reset the feature
             data_tr_list[i][:, j] = feat_tr.clone()
             data_trte_list[i][:, j] = feat_trte.clone()
@@ -116,7 +117,7 @@ def cal_feat_imp(
     return feat_imp_list
 
 
-def summarize_imp_feat(featimp_list_list, topn=30):
+def summarize_imp_feat(featimp_list_list, exp_path, topn=30):
     """Summarize important features for each view
 
     Parameters
@@ -152,3 +153,7 @@ def summarize_imp_feat(featimp_list_list, topn=30):
     print("{:}\t{:}".format("Rank", "Feature name"))
     for i in range(len(df_featimp_top)):
         print("{:}\t{:}".format(i + 1, df_featimp_top.iloc[i]["feat_name"]))
+    # save the df_featimp_top at the exp_path
+    df_featimp_top.to_csv(os.path.join(exp_path, "featimp.csv"), index=False)
+    df_featimp_top.drop(columns=["omics", "imp"], inplace=True)
+    df_featimp_top.to_csv(os.path.join(exp_path, "processed_featimp.csv"), index=False)
