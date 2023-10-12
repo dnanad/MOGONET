@@ -19,14 +19,9 @@ from utils import (
 )
 
 if __name__ == "__main__":
-    data_folder = (
-        "Test_data"  # "PE_cfRNA"  # "Test_data"  # "PE_cfRNA_pre"  # "Test_data"
-    )
-    labels = "sraruntable_final.csv"
-    index_column = "gene_name"
-    columns_to_drop = ["gene_num"]
+    data_folder = "TEST_DATA"  # "disc_coho3"  # "disc_coho"  # "discovery_cohort"  # "PB2_cfRNA"  # "PB2"  # "Test_data"  # "PE_cfRNA"  # "Test_data"  # "PE_cfRNA_pre"  # "Test_data"
 
-    CV = True  # False  # True #Cross validation
+    CV = True  # True #Cross validation
     n_splits = 5
     test_size = 0.2
 
@@ -34,11 +29,16 @@ if __name__ == "__main__":
     rootpath = os.path.dirname(os.path.realpath(__file__))
     data_folder_path = os.path.join(rootpath, data_folder)
 
+    label_files = os.listdir(os.path.join(data_folder, "labels"))
+    labels = label_files[0]  # "disc_coho3_cfrna_labels.csv"  # "sraruntable_final.csv"
+
     # create a path to the labels
     labels_path = os.path.join(data_folder_path, "labels", labels)
 
     # find the number of omics and the maximum number of folders
     omics_list, _ = find_numFolders_maxNumFolders(data_folder_path)
+    index_column = "gene_name"
+    columns_to_drop = ["gene_num"]
 
     # dictionary to store the sample ids
     sample_ids_dict = {}
@@ -46,8 +46,8 @@ if __name__ == "__main__":
         omic_path = os.path.join(data_folder_path, str(i))  # path to the omic folder
         processed_data_file_name = str(i) + "_processed_data.csv"
         processed_file_path = os.path.join(omic_path, processed_data_file_name)
-        check_if_it_is_needed_to_process = os.path.exists(processed_file_path)
-        if not check_if_it_is_needed_to_process:
+        check_if_it_is_needed_to_processed = os.path.exists(processed_file_path)
+        if not check_if_it_is_needed_to_processed:
             for f in os.scandir(
                 omic_path
             ):  # iterate through the files in the omic folder
@@ -63,6 +63,9 @@ if __name__ == "__main__":
 
                 df.to_csv(processed_file_path)  # save the processed data file
                 sample_ids_dict[i] = df.index  # save the sample ids
+        else:
+            df = pd.read_csv(processed_file_path, index_col=0)
+            sample_ids_dict[i] = df.index
 
     sample_folder = os.path.join(
         data_folder_path, "samples"
@@ -71,9 +74,8 @@ if __name__ == "__main__":
     # save sample ids
     save_sample_ids(sample_ids_dict, sample_folder)
 
-    if not os.path.exists(sample_folder):
-        # compare the sample ids and keep the common ones
-        find_common_sample_ids(sample_ids_dict, sample_folder)
+    # compare the sample ids and keep the common ones
+    find_common_sample_ids(sample_ids_dict, sample_folder)
 
     # import pickle
     with open(os.path.join(sample_folder, "common_sample_ids.pickle"), "rb") as handle:
